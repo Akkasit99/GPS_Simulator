@@ -64,12 +64,36 @@ def process_gps_data(file_path):
         if not col_lat or not col_lon or not col_time:
             return None, "Missing Columns"
 
-        df[col_time] = pd.to_datetime(df[col_time], dayfirst=True, errors='coerce')
+        # Try parsing dates with a more robust approach
+        # Use dayfirst=True because data is DD/MM/YYYY
+        # Use format='mixed' if available, otherwise fallback
+        def parse_date(date_series):
+              # Convert to string first to ensure consistency
+              date_series = date_series.astype(str)
+              
+              # 1. Try DD/MM/YYYY format first (very common in TH)
+              res = pd.to_datetime(date_series, dayfirst=True, errors='coerce')
+              
+              # If more than 50% failed, try without dayfirst (could be YYYY-MM-DD)
+              if res.isna().sum() > len(res) * 0.5:
+                  res = pd.to_datetime(date_series, dayfirst=False, errors='coerce')
+              
+              return res
+
+        df[col_time] = parse_date(df[col_time])
+        
+        # Check if we have many NaT. Some systems/files might use different formats per row
+        if df[col_time].isna().any():
+            mask = df[col_time].isna()
+            df.loc[mask, col_time] = pd.to_datetime(df.loc[mask, col_time], errors='coerce')
+
+        # Drop rows where time couldn't be parsed
         df = df.dropna(subset=[col_time])
         df = df.sort_values(col_time)
         
         if df.empty: return None, "Empty Data"
         
+        # [CRITICAL FIX] Ensure date_str is calculated for all years
         df['date_str'] = df[col_time].dt.strftime('%Y-%m-%d')
         return df, None
 
